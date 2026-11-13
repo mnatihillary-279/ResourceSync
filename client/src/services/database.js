@@ -1,5 +1,6 @@
+
 const DATABASE_NAME = "resourcesync-local";
-const DATABASE_VERSION = 1;
+const DATABASE_VERSION = 2;
 
 let databasePromise;
 
@@ -25,13 +26,27 @@ function openDatabase() {
       }
 
       if (!database.objectStoreNames.contains("processedOperations")) {
-        database.createObjectStore("processedOperations", { keyPath: "operationId" });
+        database.createObjectStore("processedOperations", {
+          keyPath: "operationId"
+        });
+      }
+
+      if (!database.objectStoreNames.contains("resourceMovements")) {
+        database.createObjectStore("resourceMovements", {
+          keyPath: "id"
+        });
       }
     };
 
     request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-    request.onblocked = () => reject(new Error("Database upgrade is blocked by another open tab."));
+    request.onerror = () => {
+      databasePromise = null;
+      reject(request.error);
+    };
+    request.onblocked = () => {
+      databasePromise = null;
+      reject(new Error("Database upgrade is blocked by another open tab."));
+    };
   });
 
   return databasePromise;
@@ -44,39 +59,63 @@ function requestResult(request) {
   });
 }
 
+function waitForTransaction(transaction) {
+  return new Promise((resolve, reject) => {
+    transaction.oncomplete = resolve;
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(
+      transaction.error || new Error("Local transaction aborted.")
+    );
+  });
+}
+
 export async function loadSnapshot() {
   const database = await openDatabase();
   const transaction = database.transaction(
-    ["resources", "pendingOperations", "processedOperations"],
+    ["resources", "pendingOperations", "processedOperations", "resourceMovements"],
     "readonly"
   );
 
-  const [resources, pendingOperations, processedOperations] = await Promise.all([
+  const [
+    resources,
+    pendingOperations,
+    processedOperations,
+    resourceMovements
+  ] = await Promise.all([
     requestResult(transaction.objectStore("resources").getAll()),
     requestResult(transaction.objectStore("pendingOperations").getAll()),
-    requestResult(transaction.objectStore("processedOperations").getAll())
+    requestResult(transaction.objectStore("processedOperations").getAll()),
+    requestResult(transaction.objectStore("resourceMovements").getAll())
   ]);
 
   pendingOperations.sort((a, b) => a.sequence - b.sequence);
+  resourceMovements.sort(
+    (a, b) => Date.parse(a.occurredAt) - Date.parse(b.occurredAt)
+  );
 
-  return { resources, pendingOperations, processedOperations };
+  return {
+    resources,
+    pendingOperations,
+    processedOperations,
+    resourceMovements
+  };
 }
 
-export async function commitLocalOperation(resource, operation) {
+export async function commitLocalOperation(resource, operation, movement = null) {
   const database = await openDatabase();
   const transaction = database.transaction(
-    ["resources", "pendingOperations"],
+    ["resources", "pendingOperations", "resourceMovements"],
     "readwrite"
   );
 
   transaction.objectStore("resources").put(resource);
   transaction.objectStore("pendingOperations").add(operation);
 
-  await new Promise((resolve, reject) => {
-    transaction.oncomplete = resolve;
-    transaction.onerror = () => reject(transaction.error);
-    transaction.onabort = () => reject(transaction.error || new Error("Local transaction aborted."));
-  });
+  if (movement) {
+    transaction.objectStore("resourceMovements").add(movement);
+  }
+
+  await waitForTransaction(transaction);
 }
 
 export async function getNextPendingOperation() {
@@ -117,11 +156,7 @@ export async function acknowledgeOperation(operation, canonicalResource, receipt
     resourcesStore.put(canonicalResource);
   }
 
-  await new Promise((resolve, reject) => {
-    transaction.oncomplete = resolve;
-    transaction.onerror = () => reject(transaction.error);
-    transaction.onabort = () => reject(transaction.error || new Error("Acknowledgment transaction aborted."));
-  });
+  await waitForTransaction(transaction);
 }
 
 export async function mergeRemoteResources(remoteResources) {
@@ -148,30 +183,20 @@ export async function mergeRemoteResources(remoteResources) {
     }
   }
 
-  // Do not remove local-only records while there are pending changes.
-  // A remote snapshot is merged, not treated as an authoritative delete list.
   for (const localResource of localResources) {
     if (!remoteIds.has(localResource.id) && pendingRecordIds.has(localResource.id)) {
       resourcesStore.put(localResource);
     }
   }
 
-  await new Promise((resolve, reject) => {
-    transaction.oncomplete = resolve;
-    transaction.onerror = () => reject(transaction.error);
-    transaction.onabort = () => reject(transaction.error || new Error("Remote merge transaction aborted."));
-  });
+  await waitForTransaction(transaction);
 }
-
 
 export async function removeAlreadyAcknowledgedOperation(sequence) {
   const database = await openDatabase();
   const transaction = database.transaction("pendingOperations", "readwrite");
+
   transaction.objectStore("pendingOperations").delete(sequence);
 
-  await new Promise((resolve, reject) => {
-    transaction.oncomplete = resolve;
-    transaction.onerror = () => reject(transaction.error);
-    transaction.onabort = () => reject(transaction.error || new Error("Queue cleanup aborted."));
-  });
+  await waitForTransaction(transaction);
 }

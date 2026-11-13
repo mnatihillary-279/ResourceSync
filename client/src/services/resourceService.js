@@ -1,3 +1,4 @@
+
 import {
   commitLocalOperation,
   loadSnapshot
@@ -48,15 +49,18 @@ function makeOperation(type, resource) {
   };
 }
 
-async function persistMutation(type, resource) {
+async function persistMutation(type, resource, movement = null) {
   const operation = makeOperation(type, resource);
-  await commitLocalOperation(resource, operation);
+
+  await commitLocalOperation(resource, operation, movement);
+
   recordMap.set(resource.id, resource);
   return operation;
 }
 
 export async function createResource(input) {
   const now = new Date().toISOString();
+
   const resource = {
     id: crypto.randomUUID(),
     name: input.name.trim(),
@@ -76,7 +80,10 @@ export async function createResource(input) {
 
 export async function updateResource(id, input) {
   const current = recordMap.get(id);
-  if (!current || current.deleted) throw new Error("Resource not found.");
+
+  if (!current || current.deleted) {
+    throw new Error("Resource not found.");
+  }
 
   const resource = {
     ...current,
@@ -96,7 +103,10 @@ export async function updateResource(id, input) {
 
 export async function deleteResource(id) {
   const current = recordMap.get(id);
-  if (!current || current.deleted) throw new Error("Resource not found.");
+
+  if (!current || current.deleted) {
+    throw new Error("Resource not found.");
+  }
 
   const tombstone = {
     ...current,
@@ -108,4 +118,50 @@ export async function deleteResource(id) {
 
   await persistMutation("DELETE", tombstone);
   return tombstone;
+}
+
+export async function recordConsumption(resourceId, quantity) {
+  const current = recordMap.get(resourceId);
+  const amount = Number(quantity);
+
+  if (!current || current.deleted) {
+    throw new Error("Resource not found.");
+  }
+
+  if (!Number.isInteger(amount) || amount <= 0) {
+    throw new Error("Consumption quantity must be a positive whole number.");
+  }
+
+  if (amount > current.quantity) {
+    throw new Error("Consumption cannot exceed the available stock.");
+  }
+
+  const occurredAt = new Date().toISOString();
+
+  const resource = {
+    ...current,
+    quantity: current.quantity - amount,
+    version: current.version + 1,
+    updatedAt: occurredAt,
+    deviceId
+  };
+
+  const movement = {
+    id: crypto.randomUUID(),
+    resourceId: resource.id,
+    name: resource.name,
+    category: resource.category,
+    location: resource.location,
+    type: "CONSUMPTION",
+    quantity: amount,
+    occurredAt,
+    deviceId
+  };
+
+  await persistMutation("UPDATE", resource, movement);
+
+  return {
+    resource,
+    movement
+  };
 }

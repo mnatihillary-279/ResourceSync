@@ -1,0 +1,129 @@
+ResourceSync – System Requirements
+
+1. Purpose
+
+This document specifies the software, environment and configuration requirements for installing, running, testing and developing ResourceSync.
+
+2. Required Software
+
+Software| Requirement| Purpose
+Node.js| Version 20 or later| Runs the backend and development tools
+npm| Version 10 or later| Installs and manages project dependencies
+MongoDB| Replica set or sharded deployment supporting transactions| Persistent server-side data storage
+Git| Current stable version| Source control and collaboration
+Modern web browser| IndexedDB, Service Worker and Fetch API support| Runs the frontend and offline storage
+Visual Studio Code| Recommended| Code editing and debugging
+
+Important: MongoDB must support multi-document transactions. A standalone MongoDB server without transaction support is insufficient for the synchronization implementation.
+
+3. Project Dependencies
+
+ResourceSync uses JavaScript packages managed through npm workspaces.
+
+Dependencies are declared in:
+
+- "package.json"
+- "server/package.json"
+- "client/package.json"
+- "package-lock.json"
+
+Install dependencies from the project root:
+
+npm install
+
+Do not install packages individually unless a deliberate dependency change is required.
+
+4. Database Requirements
+
+- MongoDB must be running and reachable by the backend.
+- The database deployment must support transactions.
+- For local development, configure MongoDB as a single-node replica set named "rs0".
+- The backend connection string must include the replica-set configuration.
+
+Example configuration:
+
+MONGODB_URI=mongodb://127.0.0.1:27017/?replicaSet=rs0
+MONGODB_DATABASE=resourcesync
+
+5. Environment Configuration
+
+The backend requires an environment configuration file at:
+
+"server/.env"
+
+Required variable:
+
+MONGODB_URI=
+
+Optional variables:
+
+MONGODB_DATABASE=resourcesync
+PORT=4000
+NODE_ENV=development
+
+The actual MongoDB connection URI must point to a valid transaction-capable deployment.
+
+Use ".env.example" as the configuration template.
+
+Never commit actual credentials, database passwords or private connection strings to GitHub.
+
+6. Network and Ports
+
+Port| Purpose
+5173| Vite frontend development server
+4000| Express backend API
+
+These are the expected local development ports. The backend uses the configured "PORT" value, defaulting to "4000".
+
+In production, the Express application serves the built frontend and API from the same application service. The hosting platform may assign a different port.
+
+7. Browser Capabilities
+
+The browser should support:
+
+- IndexedDB for local resource and synchronization data.
+- Service Workers for application-shell caching.
+- Fetch API for communication with the backend.
+- JavaScript ES modules.
+- "crypto.randomUUID()" where used by the application.
+
+A modern version of Firefox, Chrome, Edge or another compatible browser is recommended.
+
+8. Hardware Requirements
+
+No GPU or dedicated graphics hardware is required.
+
+A specific minimum RAM or processor requirement has not been benchmarked. Actual resource usage depends on the browser, Node.js, MongoDB and other applications running simultaneously.
+
+9. Development and Production Commands
+
+Install dependencies:
+
+npm install
+
+Start development servers:
+
+npm run dev
+
+Run automated tests:
+
+npm test
+
+Build the frontend:
+
+npm run build
+
+Start the production application after building:
+
+npm start
+
+Run commands from the project root directory.
+
+10. Important Limitations
+
+- Offline records depend on browser storage.
+- Clearing browser site data may delete locally stored records and pending synchronization operations.
+- The application is a hackathon project and has not yet been fully verified as production-ready.
+- Authentication and authorization are not currently implemented.
+- MongoDB transaction support is required for the backend synchronization process.
+- Do not use real patient information or confidential institutional records during development or demonstrations.
