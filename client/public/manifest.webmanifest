@@ -1,0 +1,10 @@
+{
+  "name": "ResourceSync",
+  "short_name": "ResourceSync",
+  "description": "Offline-first resource tracker",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f4f7fb",
+  "theme_color": "#102a43",
+  "icons": []
+}
